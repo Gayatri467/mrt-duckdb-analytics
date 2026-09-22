@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.tmp/
+.vscode/
+analytics.duckdb
+*.parquet
+data/
+mrt-data/
+output/
