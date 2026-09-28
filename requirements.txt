@@ -1,0 +1,7 @@
+duckdb
+pyarrow
+mrtparse
+pandas
+numpy
+matplotlib
+flask

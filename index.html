@@ -52,9 +52,22 @@
             <a href="#analytics" class="hover:text-white transition">Analytics</a>
             <a href="#data" class="hover:text-white transition">Data</a>
         </div>
-        <button onclick="window.refreshDashboard()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm font-medium transition">
-            Refresh Data
-        </button>
+        <div class="flex items-center gap-3">
+            <button onclick="window.refreshDashboard()" class="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                Refresh Data
+            </button>
+            
+            <!-- Auth Buttons -->
+            <button id="loginButton" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm font-medium transition">
+                Login
+            </button>
+            <div id="userInfo" class="hidden flex items-center gap-3">
+                <span id="userName" class="text-sm font-medium text-slate-300"></span>
+                <button id="logoutButton" class="bg-red-600/80 hover:bg-red-500 px-4 py-2 rounded-lg text-sm font-medium transition">
+                    Logout
+                </button>
+            </div>
+        </div>
     </div>
 </nav>
 
@@ -109,8 +122,8 @@
     <div id="statusBox" class="border border-slate-800 bg-slate-900/60 rounded-xl px-5 py-4 flex items-center gap-4">
         <div class="loader"></div>
         <div>
-            <p id="statusTitle" class="font-medium">Initializing DuckDB...</p>
-            <p id="statusText" class="text-sm text-slate-500">Loading DuckDB-WASM and connecting to Parquet.</p>
+            <p id="statusTitle" class="font-medium">Awaiting Authentication...</p>
+            <p id="statusText" class="text-sm text-slate-500">Please log in with ZITADEL to access analytics.</p>
         </div>
     </div>
 </section>
@@ -138,12 +151,6 @@
 
 <!-- ANALYTICS -->
 <section id="analytics" class="max-w-7xl mx-auto px-6 pb-20">
-    <div class="mb-10">
-        <p class="text-blue-400 text-sm font-medium">LIVE QUERY ANALYTICS</p>
-        <h2 class="text-3xl font-bold mt-2">Routing Data Insights</h2>
-        <p class="text-slate-500 mt-3">Each chart is generated from a DuckDB SQL query against the Parquet dataset.</p>
-    </div>
-
     <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
             <div>
@@ -230,8 +237,88 @@
     </div>
 </footer>
 
-<!-- JAVASCRIPT -->
+<!-- JAVASCRIPT LOGIC (ZITADEL + DUCKDB) -->
 <script type="module">
+import { UserManager } from "https://cdn.jsdelivr.net/npm/oidc-client-ts@3.3.0/+esm";
+
+// ============================================================
+// ZITADEL CONFIGURATION
+// ============================================================
+const ZITADEL_DOMAIN = "https://analytics-y789fk.au1.zitadel.cloud";
+const ZITADEL_CLIENT_ID = "392038361608518925";
+const REDIRECT_URI = "http://localhost:5500/";
+
+const oidcConfig = {
+    authority: ZITADEL_DOMAIN,
+    client_id: ZITADEL_CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    post_logout_redirect_uri: REDIRECT_URI,
+    response_type: "code",
+    scope: "openid profile email",
+    automaticSilentRenew: true
+};
+
+const userManager = new UserManager(oidcConfig);
+
+// ============================================================
+// ZITADEL AUTHENTICATION LOGIC
+// ============================================================
+async function login() {
+    try {
+        await userManager.signinRedirect();
+    } catch (error) {
+        console.error("ZITADEL login failed:", error);
+        alert("ZITADEL login failed: " + error.message);
+    }
+}
+
+async function logout() {
+    try {
+        await userManager.signoutRedirect();
+    } catch (error) {
+        console.error("ZITADEL logout failed:", error);
+    }
+}
+
+async function handleLoginCallback() {
+    if (window.location.search.includes("code=")) {
+        try {
+            await userManager.signinRedirectCallback();
+            window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (error) {
+            console.error("ZITADEL callback failed:", error);
+            alert("ZITADEL callback failed: " + error.message);
+        }
+    }
+}
+
+async function checkLogin() {
+    try {
+        const user = await userManager.getUser();
+        if (user && !user.expired) {
+            console.log("User is authenticated:", user.profile);
+            
+            // Render UI for logged in state
+            document.getElementById("loginButton")?.classList.add("hidden");
+            document.getElementById("userInfo")?.classList.remove("hidden");
+            document.getElementById("userName").textContent = user.profile.name || user.profile.email || "Authenticated";
+            
+            return true;
+        }
+        
+        console.log("User is not authenticated");
+        document.getElementById("loginButton")?.classList.remove("hidden");
+        document.getElementById("userInfo")?.classList.add("hidden");
+        return false;
+    } catch (error) {
+        console.error("Authentication check failed:", error);
+        return false;
+    }
+}
+
+// ============================================================
+// DUCKDB & DASHBOARD LOGIC
+// ============================================================
 let db = null;
 let conn = null;
 
@@ -255,10 +342,13 @@ function setStatus(title, text, success = false) {
             </div>
         `;
     } else {
-        const titleEl = document.getElementById("statusTitle");
-        const textEl = document.getElementById("statusText");
-        if (titleEl) titleEl.textContent = title;
-        if (textEl) textEl.textContent = text;
+        box.innerHTML = `
+            <div class="loader"></div>
+            <div>
+                <p id="statusTitle" class="font-medium">${title}</p>
+                <p id="statusText" class="text-sm text-slate-500">${text}</p>
+            </div>
+        `;
     }
 }
 
@@ -335,7 +425,6 @@ async function loadSummary() {
 
 async function loadUpdatesChart() {
     try {
-        // String slicing guarantees compatibility across string, timestamp, and epoch types
         const result = await conn.query(`
             SELECT
                 SUBSTR(CAST(timestamp AS STRING), 1, 16) AS time_bucket,
@@ -519,7 +608,27 @@ async function loadPeerChart() {
     }
 }
 
-initDuckDB();
+// ============================================================
+// INITIALIZATION ON DOM READY
+// ============================================================
+document.addEventListener("DOMContentLoaded", async () => {
+    // Bind button actions
+    document.getElementById("loginButton")?.addEventListener("click", login);
+    document.getElementById("logoutButton")?.addEventListener("click", logout);
+
+    // Handle incoming auth callback
+    await handleLoginCallback();
+
+    // Verify session
+    const authenticated = await checkLogin();
+
+    if (authenticated) {
+        console.log("ZITADEL authentication successful. Loading DuckDB...");
+        await initDuckDB();
+    } else {
+        setStatus("Authentication Required", "Please click 'Login with ZITADEL' above to continue.");
+    }
+});
 </script>
 </body>
 </html>

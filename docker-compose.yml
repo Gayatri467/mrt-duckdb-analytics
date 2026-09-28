@@ -1,0 +1,17 @@
+services:
+  mrt-duckdb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: mrt-duckdb-analytics
+
+    ports:
+      - "5000:5000"
+
+    volumes:
+      - ./data:/app/data
+      - ./mrt-data:/app/mrt-data
+      - ./output:/app/output
+
+    restart: unless-stopped
