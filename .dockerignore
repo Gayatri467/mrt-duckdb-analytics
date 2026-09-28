@@ -1,9 +1,0 @@
-.venv/
-.git/
-.gitignore
-__pycache__/
-*.pyc
-.tmp/
-.vscode/
-output/
-*.duckdb
